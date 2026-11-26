@@ -1,0 +1,23 @@
+# Configuración estática de Traefik (API Gateway del prototipo).
+# El enrutamiento dinámico (routers, middlewares, services) se define de forma
+# declarativa en dynamic.yml (file provider), apuntando a cada servicio por su
+# nombre de red interno. No se usa el socket de Docker.
+
+entryPoints:
+  web:
+    address: ":80"
+
+# Panel de control (solo desarrollo, para inspección).
+api:
+  dashboard: true
+  insecure: true
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}

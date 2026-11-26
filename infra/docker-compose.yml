@@ -1,0 +1,420 @@
+# Infraestructura base del prototipo.
+# Levanta los tres almacenes/broker compartidos: PostgreSQL, Redis y RabbitMQ.
+# Los microservicios de dominio y de IA se agregan como servicios propios
+# más adelante y se conectarán a esta misma red interna.
+#
+# Uso:
+#   docker compose up -d          # levantar
+#   docker compose ps             # estado + healthchecks
+#   docker compose logs -f        # logs
+#   docker compose down           # bajar (conserva volúmenes)
+#   docker compose down -v        # bajar y borrar datos
+#
+# Nota de red: en el diseño de producción (k3s) el único puerto expuesto al
+# exterior es el del gateway (Traefik). Acá, en desarrollo, se publican los
+# puertos de gestión/DB atados a 127.0.0.1 para poder inspeccionar y capturar
+# pantallas. No exponer así fuera de la máquina local.
+
+name: pfi
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pfi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pfi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pfi}
+      POSTGRES_DB: ${POSTGRES_DB:-pfi}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Scripts que corren una sola vez, al inicializar el volumen vacío.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pfi} -d ${POSTGRES_DB:-pfi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - pfi_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: pfi-redis
+    restart: unless-stopped
+    # appendonly: persistencia liviana (suficiente para caché de LLM / sesiones).
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - pfi_net
+
+  rabbitmq:
+    # Variante -management: incluye la consola web.
+    image: rabbitmq:3.13-management-alpine
+    container_name: pfi-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pfi}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pfi}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"      # AMQP
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672" # Consola web
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  # --- Microservicios de dominio ---
+
+  catalogo:
+    build:
+      context: ../services/catalogo
+    container_name: pfi-catalogo
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: catalogo
+    ports:
+      # Expuesto en dev para inspeccionar /docs; con Traefik esto queda solo interno.
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  pedidos:
+    build:
+      context: ../services/pedidos
+    container_name: pfi-pedidos
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: pedidos
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+      CATALOGO_URL: http://catalogo:8000
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      catalogo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  # --- Pagos: consumidor de pedidos.creados + pago simulado ---
+
+  pagos:
+    build:
+      context: ../services/pagos
+    container_name: pfi-pagos
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: pagos
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+    ports:
+      - "127.0.0.1:8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  # --- IA: detector de anomalías transaccionales (Isolation Forest) ---
+
+  anomalias:
+    build:
+      context: ../services/anomalias
+    container_name: pfi-anomalias
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: anomalias
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+    ports:
+      - "127.0.0.1:8007:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - pfi_net
+
+  # --- IA: motor de notificaciones adaptativas (LLM + guardrails) ---
+
+  notificaciones:
+    build:
+      context: ../services/notificaciones
+    container_name: pfi-notificaciones
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: notificaciones
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      USUARIOS_URL: http://usuarios:8000
+      # Clave del free tier de Gemini (misma que el agente). Vacía => plantilla de respaldo.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MODELO_GEMINI: ${MODELO_GEMINI:-gemini-flash-lite-latest}
+    ports:
+      - "127.0.0.1:8008:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      usuarios:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - pfi_net
+
+  # --- Usuarios: dueño del perfil del comprador (entidad USUARIO) ---
+
+  usuarios:
+    build:
+      context: ../services/usuarios
+    container_name: pfi-usuarios
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: usuarios
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+    ports:
+      - "127.0.0.1:8009:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  # --- Stock: disponibilidad y reserva de unidades ---
+
+  stock:
+    build:
+      context: ../services/stock
+    container_name: pfi-stock
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pfi}:${POSTGRES_PASSWORD:-pfi}@postgres:5432/${POSTGRES_DB:-pfi}
+      DB_SCHEMA: stock
+      AMQP_URL: amqp://${RABBITMQ_USER:-pfi}:${RABBITMQ_PASSWORD:-pfi}@rabbitmq:5672/
+      CATALOGO_URL: http://catalogo:8000
+    ports:
+      - "127.0.0.1:8011:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      catalogo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - pfi_net
+
+  # --- Autenticación: emite y valida JWT ---
+
+  auth:
+    build:
+      context: ../services/auth
+    container_name: pfi-auth
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-cambiar}
+      USUARIOS_URL: http://usuarios:8000
+    ports:
+      - "127.0.0.1:8004:8000"
+    depends_on:
+      usuarios:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  # --- Capa de IA: servidor MCP de dominio + agente conversacional ---
+
+  mcp:
+    build:
+      context: ../agent/mcp_server
+    container_name: pfi-mcp
+    restart: unless-stopped
+    environment:
+      CATALOGO_URL: http://catalogo:8000
+      PEDIDOS_URL: http://pedidos:8000
+      STOCK_URL: http://stock:8000
+    ports:
+      # Expuesto en dev para inspección; en producción es interno (solo lo usa el agente).
+      - "127.0.0.1:8010:8000"
+    depends_on:
+      catalogo:
+        condition: service_started
+      pedidos:
+        condition: service_started
+      stock:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - pfi_net
+
+  agente:
+    build:
+      context: ../agent/agent_service
+    container_name: pfi-agente
+    restart: unless-stopped
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      REDIS_URL: redis://redis:6379/0
+      # Clave del free tier de Gemini. Vacía => usa el respaldo determinista.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MODELO_GEMINI: ${MODELO_GEMINI:-gemini-flash-lite-latest}
+    ports:
+      - "127.0.0.1:8005:8000"
+    depends_on:
+      mcp:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - pfi_net
+
+  # --- Frontend de demo: chat + panel de traza ReAct (se sirve tras el gateway) ---
+
+  front:
+    build:
+      context: ../front
+    container_name: pfi-front
+    restart: unless-stopped
+    ports:
+      # Directo en dev; el acceso real de la demo es por el gateway (http://localhost).
+      - "127.0.0.1:8006:80"
+    depends_on:
+      - agente
+      - catalogo
+      - pedidos
+      - auth
+    healthcheck:
+      # 127.0.0.1 (no "localhost": dentro del contenedor resuelve a ::1/IPv6 y
+      # nginx escucha solo IPv4, dando "connection refused").
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - pfi_net
+
+  # --- API Gateway: único punto de entrada ---
+
+  gateway:
+    image: traefik:v3.1
+    container_name: pfi-gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:80:80"       # entrypoint web (único punto de entrada)
+      - "127.0.0.1:8080:8080"   # dashboard (solo dev, para inspección)
+    volumes:
+      - ../gateway/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../gateway/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    depends_on:
+      - auth
+      - catalogo
+      - pedidos
+      - pagos
+      - agente
+      - front
+    networks:
+      - pfi_net
+
+volumes:
+  pg_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  pfi_net:
+    name: pfi_net
+    driver: bridge

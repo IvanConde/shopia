@@ -1,0 +1,31 @@
+# Entorno local (se versiona solo .env.example)
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Datos y artefactos locales
+*.log
+*.sqlite
+*.db
+data/
+
+# Editores / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

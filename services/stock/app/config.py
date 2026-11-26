@@ -1,0 +1,23 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Configuración del servicio de Stock, tomada del entorno."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str = "postgresql+asyncpg://pfi:pfi@postgres:5432/pfi"
+    db_schema: str = "stock"
+
+    # Bus de eventos (RabbitMQ / AMQP).
+    amqp_url: str = "amqp://pfi:pfi@rabbitmq:5672/"
+    events_exchange: str = "pfi.events"
+    # Cola durable propia: reserva y confirmación/liberación de stock.
+    queue_stock: str = "stock.eventos"
+
+    # Catálogo, para sembrar una fila de stock por producto al arrancar.
+    catalogo_url: str = "http://catalogo:8000"
+    stock_inicial: int = 50
+
+
+settings = Settings()

@@ -1,0 +1,135 @@
+# Capa de IA: servidor MCP, agente conversacional, detector de anomalías y
+# motor de notificaciones. Mismo patrón que dominio; anomalías pide más memoria
+# (scikit-learn). agente y notificaciones leen GEMINI_API_KEY del Secret.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: mcp, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: mcp } }
+  template:
+    metadata: { labels: { app: mcp } }
+    spec:
+      containers:
+        - name: mcp
+          image: pfi-mcp:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: "96Mi" }
+            limits: { cpu: "250m", memory: "192Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mcp, namespace: pfi }
+spec:
+  selector: { app: mcp }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: agente, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: agente } }
+  template:
+    metadata: { labels: { app: agente } }
+    spec:
+      containers:
+        - name: agente
+          image: pfi-agente:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "160Mi" }
+            limits: { cpu: "500m", memory: "384Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: agente, namespace: pfi }
+spec:
+  selector: { app: agente }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: anomalias, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: anomalias } }
+  template:
+    metadata: { labels: { app: anomalias } }
+    spec:
+      containers:
+        - name: anomalias
+          image: pfi-anomalias:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "anomalias" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: anomalias, namespace: pfi }
+spec:
+  selector: { app: anomalias }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: notificaciones, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: notificaciones } }
+  template:
+    metadata: { labels: { app: notificaciones } }
+    spec:
+      containers:
+        - name: notificaciones
+          image: pfi-notificaciones:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "notificaciones" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "160Mi" }
+            limits: { cpu: "500m", memory: "384Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: notificaciones, namespace: pfi }
+spec:
+  selector: { app: notificaciones }
+  ports: [{ port: 8000, targetPort: 8000 }]

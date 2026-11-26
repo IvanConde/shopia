@@ -1,0 +1,51 @@
+# Autoescalado horizontal (HPA): escala las réplicas según el uso de CPU bajo carga.
+# Usa métricas de CPU que provee metrics-server (incluido en k3s/k3d). Bajo carga
+# (Locust), cuando el uso de CPU supera el umbral, Kubernetes agrega réplicas del
+# servicio; al bajar la carga, las retira. Requiere `resources.requests.cpu` en el
+# Deployment (definido en 20-services-dominio.yaml).
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: catalogo, namespace: pfi }
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: catalogo
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 15   # reacciona rápido al pico (para la demo)
+    scaleDown:
+      stabilizationWindowSeconds: 60   # baja con calma, evita oscilar
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: pedidos, namespace: pfi }
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pedidos
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 15   # reacciona rápido al pico (para la demo)
+    scaleDown:
+      stabilizationWindowSeconds: 60   # baja con calma, evita oscilar (igual que catalogo)

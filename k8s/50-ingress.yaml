@@ -1,0 +1,112 @@
+# Ingress = el gateway, ahora como recursos nativos de Traefik (el ingress que
+# trae k3s). Reemplaza al contenedor gateway + dynamic.yml del docker-compose:
+# - Middlewares: rate limiting, ForwardAuth JWT, stripPrefix.
+#   - IngressRoute: enrutamiento por path bajo el entrypoint `web` (:80).
+# Público: /api/catalogo, /api/stock, /api/auth.  Protegido (JWT): /api/pedidos,
+# /api/pagos, /api/usuarios, /api/agente.  Todo /api pasa por rate limiting.
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: ratelimit, namespace: pfi }
+spec:
+  # Calibrado al objetivo de throughput (≈300 RPS): deja pasar la carga
+  # esperada y frena los excesos. Para una prueba de saturación pura, subirlo.
+  rateLimit:
+    average: 300
+    burst: 600
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: jwt-auth, namespace: pfi }
+spec:
+  forwardAuth:
+    address: "http://auth.pfi.svc.cluster.local:8000/verify"
+    authResponseHeaders: ["X-User-Id", "X-User-Email"]
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: catalogo-strip, namespace: pfi }
+spec: { stripPrefix: { prefixes: ["/api/catalogo"] } }
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: auth-strip, namespace: pfi }
+spec: { stripPrefix: { prefixes: ["/api/auth"] } }
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: agente-strip, namespace: pfi }
+spec: { stripPrefix: { prefixes: ["/api/agente"] } }
+---
+# Pedidos, pagos, usuarios y stock exponen su recurso bajo su propio nombre
+# (/pedidos, /pagos, …) → solo se quita /api.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: api-strip, namespace: pfi }
+spec: { stripPrefix: { prefixes: ["/api"] } }
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata: { name: anomalias-strip, namespace: pfi }
+spec: { stripPrefix: { prefixes: ["/api/anomalias"] } }
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata: { name: pfi, namespace: pfi }
+spec:
+  entryPoints: ["web"]
+  routes:
+    - match: PathPrefix(`/api/catalogo`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: catalogo-strip }]
+      services: [{ name: catalogo, port: 8000 }]
+    - match: PathPrefix(`/api/stock`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: api-strip }]
+      services: [{ name: stock, port: 8000 }]
+    - match: PathPrefix(`/api/auth`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: auth-strip }]
+      services: [{ name: auth, port: 8000 }]
+    - match: PathPrefix(`/api/pedidos`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: api-strip }]
+      services: [{ name: pedidos, port: 8000 }]
+    - match: PathPrefix(`/api/pagos`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: api-strip }]
+      services: [{ name: pagos, port: 8000 }]
+    - match: PathPrefix(`/api/usuarios`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: api-strip }]
+      services: [{ name: usuarios, port: 8000 }]
+    - match: PathPrefix(`/api/agente`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: agente-strip }]
+      services: [{ name: agente, port: 8000 }]
+    - match: PathPrefix(`/api/anomalias`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: anomalias-strip }]
+      services: [{ name: anomalias, port: 8000 }]
+    - match: PathPrefix(`/api/vendedor`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: api-strip }]
+      services: [{ name: pedidos, port: 8000 }]
+    - match: PathPrefix(`/api/notificaciones`)
+      kind: Rule
+      priority: 20
+      middlewares: [{ name: ratelimit }, { name: jwt-auth }, { name: api-strip }]
+      services: [{ name: notificaciones, port: 8000 }]
+    - match: PathPrefix(`/`)
+      kind: Rule
+      priority: 1
+      services: [{ name: front, port: 80 }]

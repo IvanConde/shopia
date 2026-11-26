@@ -1,0 +1,42 @@
+# Namespace + configuración común del prototipo en Kubernetes (D3).
+# Los valores no secretos van en el ConfigMap; los secretos (clave de Gemini,
+# secreto JWT) van en un Secret aparte que crea `deploy.sh` desde infra/.env
+# (NUNCA se commitea la clave). Como los servicios usan pydantic BaseSettings con
+# extra="ignore", se puede inyectar todo el ConfigMap/Secret a cada pod sin romper
+# nada: cada servicio toma solo las variables que conoce.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pfi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pfi-config
+  namespace: pfi
+data:
+  DATABASE_URL: "postgresql+asyncpg://pfi:pfi@postgres:5432/pfi"
+  AMQP_URL: "amqp://pfi:pfi@rabbitmq:5672/"
+  REDIS_URL: "redis://redis:6379/0"
+  CATALOGO_URL: "http://catalogo:8000"
+  PEDIDOS_URL: "http://pedidos:8000"
+  MCP_URL: "http://mcp:8000/mcp"
+  MODELO_GEMINI: "gemini-flash-lite-latest"
+---
+# Esquema-por-servicio: PostgreSQL crea los 7 esquemas al inicializar el volumen.
+# Las tablas las crea cada servicio por SQLAlchemy al arrancar (igual que en compose).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: pfi
+data:
+  00_schemas.sql: |
+    CREATE SCHEMA IF NOT EXISTS usuarios;
+    CREATE SCHEMA IF NOT EXISTS catalogo;
+    CREATE SCHEMA IF NOT EXISTS stock;
+    CREATE SCHEMA IF NOT EXISTS pedidos;
+    CREATE SCHEMA IF NOT EXISTS pagos;
+    CREATE SCHEMA IF NOT EXISTS anomalias;
+    CREATE SCHEMA IF NOT EXISTS notificaciones;

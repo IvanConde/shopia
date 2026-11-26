@@ -1,0 +1,171 @@
+# Configuración dinámica de Traefik (routers, middlewares y services).
+# Rutas por prefijo de path bajo el único entrypoint `web` (:80).
+# Público: /api/catalogo, /api/stock, /api/auth.  Protegido (JWT): /api/pedidos,
+# /api/pagos, /api/usuarios, /api/agente.  Todas las rutas /api pasan por el
+# middleware de rate limiting.
+
+http:
+  routers:
+    catalogo:
+      rule: "PathPrefix(`/api/catalogo`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, catalogo-strip]
+      service: catalogo
+    stock:
+      rule: "PathPrefix(`/api/stock`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, stock-strip]
+      service: stock
+    auth:
+      rule: "PathPrefix(`/api/auth`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, auth-strip]
+      service: auth
+    pedidos:
+      rule: "PathPrefix(`/api/pedidos`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, pedidos-strip]
+      service: pedidos
+    pagos:
+      rule: "PathPrefix(`/api/pagos`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, pagos-strip]
+      service: pagos
+    # Alta de usuario: ruta pública (un visitante se registra sin token).
+    # Prioridad mayor para ganarle al router protegido en los POST.
+    usuarios-registro:
+      rule: "Path(`/api/usuarios`) && Method(`POST`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, usuarios-strip]
+      service: usuarios
+      priority: 100
+    usuarios:
+      rule: "PathPrefix(`/api/usuarios`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, usuarios-strip]
+      service: usuarios
+    agente:
+      rule: "PathPrefix(`/api/agente`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, agente-strip]
+      service: agente
+    # Alertas del detector de anomalías: protegido y filtrado por dueño.
+    anomalias:
+      rule: "PathPrefix(`/api/anomalias`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, anomalias-strip]
+      service: anomalias
+    # Resumen de operación para la vista de vendedor (scope operador, agrega todos
+    # los pedidos). Protegido por JWT; reusa el servicio Pedidos. Demo: sin rol/RBAC.
+    vendedor:
+      rule: "PathPrefix(`/api/vendedor`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, vendedor-strip]
+      service: pedidos
+    # Notificaciones adaptativas (motor LLM + guardrails): avisos al comprador
+    # (filtrados por dueño) y al operador. Protegido por JWT.
+    notificaciones:
+      rule: "PathPrefix(`/api/notificaciones`)"
+      entryPoints: [web]
+      middlewares: [ratelimit, jwt-auth, notificaciones-strip]
+      service: notificaciones
+    # Frontend de demo (chat + panel de traza). Prioridad baja: cualquier /api/*
+    # coincide antes con su router específico; solo lo no-API cae en el front.
+    front:
+      rule: "PathPrefix(`/`)"
+      entryPoints: [web]
+      service: front
+      priority: 1
+
+  middlewares:
+    # Rate limiting en el borde: promedio sostenido + ráfaga tolerada.
+    # Valores de prototipo; se calibran junto con las pruebas de carga (Locust).
+    ratelimit:
+      rateLimit:
+        average: 20
+        burst: 40
+    # Catálogo, stock y auth exponen sus recursos en la raíz (/productos, /stock,
+    # /login) -> se quita el prefijo completo /api/<servicio>.
+    catalogo-strip:
+      stripPrefix:
+        prefixes: ["/api/catalogo"]
+    auth-strip:
+      stripPrefix:
+        prefixes: ["/api/auth"]
+    # Pedidos, pagos, usuarios y stock exponen su recurso bajo su propio nombre
+    # (/pedidos, /pagos, /usuarios, /stock) -> el gateway solo quita /api.
+    pedidos-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    pagos-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    usuarios-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    stock-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    # El agente expone /chat en la raíz -> se quita el prefijo /api/agente completo.
+    agente-strip:
+      stripPrefix:
+        prefixes: ["/api/agente"]
+    # Anomalías expone /alertas en la raíz -> se quita el prefijo /api/anomalias.
+    anomalias-strip:
+      stripPrefix:
+        prefixes: ["/api/anomalias"]
+    # Vendedor expone /vendedor/resumen -> solo se quita /api.
+    vendedor-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    # Notificaciones expone /notificaciones -> solo se quita /api.
+    notificaciones-strip:
+      stripPrefix:
+        prefixes: ["/api"]
+    # Validación de JWT en el borde: delega en el servicio auth.
+    jwt-auth:
+      forwardAuth:
+        address: "http://auth:8000/verify"
+        authResponseHeaders: ["X-User-Id", "X-User-Email"]
+
+  services:
+    catalogo:
+      loadBalancer:
+        servers:
+          - url: "http://catalogo:8000"
+    stock:
+      loadBalancer:
+        servers:
+          - url: "http://stock:8000"
+    auth:
+      loadBalancer:
+        servers:
+          - url: "http://auth:8000"
+    pedidos:
+      loadBalancer:
+        servers:
+          - url: "http://pedidos:8000"
+    pagos:
+      loadBalancer:
+        servers:
+          - url: "http://pagos:8000"
+    usuarios:
+      loadBalancer:
+        servers:
+          - url: "http://usuarios:8000"
+    agente:
+      loadBalancer:
+        servers:
+          - url: "http://agente:8000"
+    anomalias:
+      loadBalancer:
+        servers:
+          - url: "http://anomalias:8000"
+    notificaciones:
+      loadBalancer:
+        servers:
+          - url: "http://notificaciones:8000"
+    front:
+      loadBalancer:
+        servers:
+          - url: "http://front:80"

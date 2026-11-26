@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "anomalias"
+version = "0.1.0"
+description = "Detector de anomalías transaccionales (Isolation Forest; consume pagos.en_proceso)"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115"
+uvicorn = {extras = ["standard"], version = "^0.32"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.0"}
+asyncpg = "^0.30"
+pydantic = "^2.9"
+pydantic-settings = "^2.6"
+aio-pika = "^9.4"
+scikit-learn = "^1.5"
+numpy = "^2.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

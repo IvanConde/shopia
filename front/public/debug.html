@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ShopIA · Autoescalado</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #181b24;
+    --panel2: #1f2330;
+    --linea: #2a2f3d;
+    --txt: #e8eaf0;
+    --faint: #9aa3b2;
+    --violeta: #8b5cf6;
+    --violeta-fuerte: #7c3aed;
+    --cian: #22d3ee;
+    --ok: #34d399;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { padding: 24px 16px 48px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .marca { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+  .marca .ia { background: linear-gradient(90deg, var(--violeta), var(--cian));
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--faint); font-size: 0.86rem; margin: 2px 0 0; max-width: 620px; }
+  .pill { font-size: 0.72rem; color: var(--faint); border: 1px solid var(--linea);
+    border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+
+  .controles { display: flex; align-items: center; gap: 12px; margin: 18px 0 20px; flex-wrap: wrap; }
+  button.accion { font: inherit; font-weight: 700; cursor: pointer; border: 0;
+    border-radius: 12px; padding: 13px 22px; color: #fff;
+    background: linear-gradient(90deg, var(--violeta-fuerte), var(--cian));
+    box-shadow: 0 6px 20px rgba(124,58,237,.35); transition: transform .08s, opacity .2s; }
+  button.accion:hover { transform: translateY(-1px); }
+  button.accion:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; border: 1px solid var(--linea); color: var(--txt);
+    box-shadow: none; }
+  .fase { font-size: 0.9rem; color: var(--faint); }
+  .fase b { color: var(--txt); }
+
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--linea); border-radius: 14px; padding: 14px 16px; }
+  .tile .k { font-size: 0.72rem; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { font-size: 1.7rem; font-weight: 800; margin-top: 4px;
+    font-variant-numeric: tabular-nums; }
+  .tile .u { font-size: 0.72rem; color: var(--faint); }
+  .tile.vfallos .v { color: var(--ok); }
+  .tile.vrepl .v { color: var(--violeta); }
+
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--linea); border-radius: 16px; padding: 16px 18px; }
+  .card h2 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--faint); margin: 0 0 12px; font-weight: 700; }
+  canvas { width: 100%; height: 260px; display: block; }
+
+  .svc { margin-bottom: 16px; }
+  .svc .cab { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .svc .nom { font-weight: 700; }
+  .svc .cpu { font-size: 0.78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .pods { display: flex; gap: 7px; flex-wrap: wrap; }
+  .pod { width: 30px; height: 34px; border-radius: 7px; border: 1px solid var(--linea);
+    background: var(--panel2); display: grid; place-items: center; font-size: 13px;
+    color: #3a4050; transition: all .35s ease; }
+  .pod.on { color: #fff; border-color: transparent; }
+  .svc.catalogo .pod.on { background: linear-gradient(160deg, var(--violeta), var(--violeta-fuerte)); }
+  .svc.pedidos .pod.on { background: linear-gradient(160deg, var(--cian), #0891b2); }
+  .pod.nuevo { animation: pop .4s ease; }
+  @keyframes pop { 0% { transform: scale(.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+  .log { background: #0b0d13; border: 1px solid var(--linea); border-radius: 12px;
+    padding: 12px 14px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.78rem; line-height: 1.6; height: 150px; overflow-y: auto; color: var(--faint); }
+  .log .ln { opacity: 0; animation: fade .3s forwards; }
+  .log .ln.rescale { color: var(--violeta); }
+  .log .ln.info { color: var(--cian); }
+  @keyframes fade { to { opacity: 1; } }
+
+  footer.nota { margin-top: 22px; color: var(--faint); font-size: 0.76rem; line-height: 1.55;
+    border-top: 1px solid var(--linea); padding-top: 14px; }
+  footer.nota code { color: var(--txt); }
+
+  @media (max-width: 860px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="marca">Shop<span class="ia">IA</span> · Autoescalado horizontal</div>
+      <p class="sub">Reproducción de la corrida real medida en <b>k3s</b> con carga de <b>Locust</b>
+        (~400 usuarios simulando un pico tipo CyberMonday). No es tráfico en vivo.</p>
+    </div>
+    <span class="pill">corrida de referencia · tiempo comprimido</span>
+  </header>
+
+  <div class="controles">
+    <button class="accion" id="btn">▶ Simular pico de demanda</button>
+    <button class="ghost accion" id="reset" disabled>Reiniciar</button>
+    <span class="fase" id="fase">Listo. El clúster arranca con <b>1 réplica</b> por servicio.</span>
+  </div>
+
+  <div class="tiles">
+    <div class="tile vrepl"><div class="k">Réplicas activas</div><div class="v" id="t-repl">2</div><div class="u">catálogo + pedidos</div></div>
+    <div class="tile"><div class="k">Peticiones</div><div class="v" id="t-req">0</div><div class="u">atendidas</div></div>
+    <div class="tile vfallos"><div class="k">Fallos</div><div class="v" id="t-fallos">0</div><div class="u" id="t-fallos-pct">0,00 %</div></div>
+    <div class="tile"><div class="k">Throughput</div><div class="v" id="t-rps">0</div><div class="u">req / s</div></div>
+    <div class="tile"><div class="k">Latencia p95</div><div class="v" id="t-p95">—</div><div class="u">percentil 95</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Réplicas vs. tiempo (HPA)</h2>
+      <canvas id="chart" width="900" height="260" aria-label="Gráfico de réplicas en el tiempo"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Pods por servicio</h2>
+      <div class="svc catalogo">
+        <div class="cab"><span class="nom">catalogo</span><span class="cpu" id="cpu-cat">CPU 2 % / 50 % · 1/5</span></div>
+        <div class="pods" id="pods-cat"></div>
+      </div>
+      <div class="svc pedidos">
+        <div class="cab"><span class="nom">pedidos</span><span class="cpu" id="cpu-ped">CPU 4 % / 60 % · 1/4</span></div>
+        <div class="pods" id="pods-ped"></div>
+      </div>
+      <h2 style="margin-top:18px">Eventos del HPA</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <footer class="nota">
+    Evidencia: HPA de <code>catalogo</code> escaló <b>1 → 5</b> y <code>pedidos</code> <b>1 → 4</b> bajo carga, y
+    ambos volvieron a <b>1</b> al cesar. Locust registró <b>29.980 peticiones con 0 fallos (0,00 %)</b>,
+    ≈166,78 req/s; latencias p50 7 ms / p95 ≈1 s bajo saturación inducida. Esta pantalla <b>reproduce</b>
+    una corrida de autoescalado representativa.
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  // ---- Datos de la corrida de referencia ----
+  const REQ_TOTAL = 29980, RPS = 166.78, P95 = "≈1 s";
+  const CAT_MAX = 5, PED_MAX = 4;
+  // Línea de tiempo virtual (0..100) de la corrida, comprimida para la demo.
+  // Keyframes de réplicas (escalón: el HPA cambia a "New size: N").
+  const kfCat = [[0,1],[18,1],[22,5],[62,5],[70,3],[78,1],[100,1]];
+  const kfPed = [[0,1],[18,1],[22,4],[66,4],[78,1],[100,1]];
+  const CARGA_INI = 18, CARGA_FIN = 62;             // ventana de carga (virtual)
+  const CPU_CAT_PICO = 350, CPU_PED_PICO = 990;     // % medidos durante la carga
+  // Eventos textuales (reales) que van apareciendo.
+  const eventos = [
+    [18, "info",    "carga iniciada — ~400 usuarios (Locust)"],
+    [22, "rescale", "catalogo  SuccessfulRescale  New size: 5; reason: cpu above target"],
+    [22, "rescale", "pedidos   SuccessfulRescale  New size: 4; reason: cpu above target"],
+    [62, "info",    "carga finalizada — métricas por debajo del objetivo"],
+    [70, "rescale", "catalogo  SuccessfulRescale  New size: 3; reason: All metrics below target"],
+    [78, "rescale", "catalogo  SuccessfulRescale  New size: 1; reason: All metrics below target"],
+    [78, "rescale", "pedidos   SuccessfulRescale  New size: 1; reason: All metrics below target"],
+  ];
+
+  const DUR_MS = 23000; // duración de la animación (0..100 virtual)
+
+  // Escalón: réplicas al tiempo virtual t.
+  function stepAt(kf, t) {
+    let v = kf[0][1];
+    for (const [tt, vv] of kf) { if (t >= tt) v = vv; else break; }
+    return v;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const btn = $("btn"), reset = $("reset"), fase = $("fase");
+  const podsCat = $("pods-cat"), podsPed = $("pods-ped");
+  const ctx = $("chart").getContext("2d");
+
+  function fmt(n) { return Math.round(n).toLocaleString("es-AR"); }
+
+  // Construye los chips de pods (activos encendidos). Solo rehace el DOM cuando
+  // cambia la cantidad: así la animación 'pop' de los nuevos se completa y no se
+  // reconstruye en cada frame (sin parpadeo ni thrash de DOM).
+  function pintarPods(cont, activos, max) {
+    const prev = Number(cont.dataset.on || 0);
+    if (cont.childElementCount === max && prev === activos) return;
+    cont.innerHTML = "";
+    for (let i = 0; i < max; i++) {
+      const on = i < activos;
+      const d = document.createElement("div");
+      d.className = "pod" + (on ? " on" : "") + (on && i >= prev ? " nuevo" : "");
+      d.textContent = on ? "▣" : "·";
+      cont.appendChild(d);
+    }
+    cont.dataset.on = String(activos);
+  }
+
+  // --- Chart: réplicas (catalogo) vs tiempo, con línea escalonada + área ---
+  function drawChart(tNow) {
+    const W = ctx.canvas.width, H = ctx.canvas.height;
+    const padL = 34, padR = 12, padT = 14, padB = 26;
+    const x = (t) => padL + (t / 100) * (W - padL - padR);
+    const y = (r) => padT + (1 - (r - 0) / (CAT_MAX)) * (H - padT - padB);
+    ctx.clearRect(0, 0, W, H);
+    // grilla + eje Y (0..5 réplicas)
+    ctx.font = "11px ui-sans-serif, system-ui";
+    ctx.textBaseline = "middle";
+    for (let r = 0; r <= CAT_MAX; r++) {
+      const yy = y(r);
+      ctx.strokeStyle = "#232838"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke();
+      ctx.fillStyle = "#6b7280"; ctx.textAlign = "right";
+      ctx.fillText(r, padL - 6, yy);
+    }
+    // ventana de carga (sombra)
+    ctx.fillStyle = "rgba(34,211,238,.07)";
+    ctx.fillRect(x(CARGA_INI), padT, x(CARGA_FIN) - x(CARGA_INI), H - padT - padB);
+    // serie escalonada hasta tNow
+    const pts = [];
+    for (let t = 0; t <= tNow; t += 0.5) pts.push([t, stepAt(kfCat, t)]);
+    pts.push([tNow, stepAt(kfCat, tNow)]);
+    // área
+    ctx.beginPath(); ctx.moveTo(x(0), y(0));
+    let py = y(pts[0][1]); ctx.lineTo(x(0), py);
+    for (const [t, r] of pts) { ctx.lineTo(x(t), py); py = y(r); ctx.lineTo(x(t), py); }
+    ctx.lineTo(x(tNow), y(0)); ctx.closePath();
+    const g = ctx.createLinearGradient(0, padT, 0, H - padB);
+    g.addColorStop(0, "rgba(139,92,246,.45)"); g.addColorStop(1, "rgba(139,92,246,.02)");
+    ctx.fillStyle = g; ctx.fill();
+    // línea
+    ctx.beginPath(); py = y(pts[0][1]); ctx.moveTo(x(0), py);
+    for (const [t, r] of pts) { ctx.lineTo(x(t), py); py = y(r); ctx.lineTo(x(t), py); }
+    ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round"; ctx.stroke();
+    // punto actual
+    const rNow = stepAt(kfCat, tNow);
+    ctx.fillStyle = "#c4b5fd";
+    ctx.beginPath(); ctx.arc(x(tNow), y(rNow), 4, 0, 7); ctx.fill();
+    // etiqueta eje X
+    ctx.fillStyle = "#6b7280"; ctx.textAlign = "center";
+    ctx.fillText("tiempo (corrida comprimida) →", W / 2, H - 8);
+  }
+
+  let raf = null, t0 = null, idxEv = 0;
+
+  function frame(ts) {
+    if (t0 == null) t0 = ts;
+    const p = Math.min((ts - t0) / DUR_MS, 1);
+    const t = p * 100; // virtual 0..100
+
+    const cat = stepAt(kfCat, t), ped = stepAt(kfPed, t);
+    const enCarga = t >= CARGA_INI && t < CARGA_FIN;
+
+    // tiles
+    $("t-repl").textContent = cat + ped;
+    const reqFrac = t <= CARGA_INI ? 0 : t >= CARGA_FIN ? 1 : (t - CARGA_INI) / (CARGA_FIN - CARGA_INI);
+    $("t-req").textContent = fmt(REQ_TOTAL * reqFrac);
+    $("t-rps").textContent = enCarga ? fmt(RPS) : "0";
+    $("t-p95").textContent = reqFrac > 0 ? P95 : "—";
+
+    // pods + cpu
+    pintarPods(podsCat, cat, CAT_MAX);
+    pintarPods(podsPed, ped, PED_MAX);
+    const cpuCat = enCarga ? CPU_CAT_PICO : (t >= CARGA_FIN ? 2 : 2);
+    const cpuPed = enCarga ? CPU_PED_PICO : (t >= CARGA_FIN ? 4 : 4);
+    $("cpu-cat").textContent = `CPU ${cpuCat} % / 50 % · ${cat}/5`;
+    $("cpu-ped").textContent = `CPU ${cpuPed} % / 60 % · ${ped}/4`;
+
+    // fase
+    if (t < CARGA_INI) fase.innerHTML = "Clúster en reposo — <b>1 réplica</b> por servicio.";
+    else if (enCarga) fase.innerHTML = "⚡ <b>Pico de demanda</b> — el HPA agrega réplicas por CPU.";
+    else if (t < 78) fase.innerHTML = "Carga cesó — <b>escalando hacia abajo</b> (5 → 3 → 1).";
+    else fase.innerHTML = "✓ Vuelto a <b>1 réplica</b>. 29.980 peticiones, <b>0 fallos</b>.";
+
+    // eventos
+    while (idxEv < eventos.length && t >= eventos[idxEv][0]) {
+      const [, tipo, msg] = eventos[idxEv++];
+      const ln = document.createElement("div");
+      ln.className = "ln " + tipo;
+      ln.textContent = msg;
+      $("log").appendChild(ln);
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+
+    drawChart(t);
+
+    if (p < 1) { raf = requestAnimationFrame(frame); }
+    else { btn.disabled = false; btn.textContent = "▶ Simular pico de demanda"; reset.disabled = false; }
+  }
+
+  function arrancar() {
+    btn.disabled = true; btn.textContent = "Reproduciendo…"; reset.disabled = true;
+    t0 = null; idxEv = 0; $("log").innerHTML = "";
+    $("t-fallos").textContent = "0"; $("t-fallos-pct").textContent = "0,00 %";
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
+  }
+  function reiniciar() {
+    cancelAnimationFrame(raf); t0 = null; idxEv = 0;
+    $("log").innerHTML = ""; $("t-req").textContent = "0"; $("t-rps").textContent = "0";
+    $("t-repl").textContent = "2"; $("t-p95").textContent = "—"; reset.disabled = true;
+    $("cpu-cat").textContent = "CPU 2 % / 50 % · 1/5"; $("cpu-ped").textContent = "CPU 4 % / 60 % · 1/4";
+    pintarPods(podsCat, 1, CAT_MAX); pintarPods(podsPed, 1, PED_MAX);
+    fase.innerHTML = "Listo. El clúster arranca con <b>1 réplica</b> por servicio.";
+    drawChart(0);
+  }
+
+  btn.addEventListener("click", arrancar);
+  reset.addEventListener("click", reiniciar);
+  // estado inicial
+  pintarPods(podsCat, 1, CAT_MAX); pintarPods(podsPed, 1, PED_MAX);
+  drawChart(0);
+  // Auto-arranque opcional (p. ej. para abrir ya corriendo): http://localhost/debug.html#auto
+  if (location.hash === "#auto") arrancar();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Frontend de demo (nginx sirviendo el estático). El enrutamiento /api lo hace
+# el Ingress (Traefik del cluster), igual que antes lo hacía el gateway: el front
+# solo sirve archivos y llama a /api/* sobre el mismo origen del Ingress.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: front, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: front } }
+  template:
+    metadata: { labels: { app: front } }
+    spec:
+      containers:
+        - name: front
+          image: pfi-front:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: front, namespace: pfi }
+spec:
+  selector: { app: front }
+  ports: [{ port: 80, targetPort: 80 }]

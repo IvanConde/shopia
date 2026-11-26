@@ -1,0 +1,205 @@
+# Microservicios de dominio: Catálogo, Pedidos, Pagos, Auth, Usuarios, Stock.
+# Patrón común: imagen local pfi-<svc>:latest (importada al cluster con k3d image
+# import → imagePullPolicy IfNotPresent), envFrom del ConfigMap + Secret (los
+# servicios ignoran las variables que no usan), readiness en /health.
+# Catálogo lleva más CPU request porque es el objetivo del HPA (ver 60-hpa.yaml).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: catalogo, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: catalogo } }
+  template:
+    metadata: { labels: { app: catalogo } }
+    spec:
+      containers:
+        - name: catalogo
+          image: pfi-catalogo:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "catalogo" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: catalogo, namespace: pfi }
+spec:
+  selector: { app: catalogo }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pedidos, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pedidos } }
+  template:
+    metadata: { labels: { app: pedidos } }
+    spec:
+      containers:
+        - name: pedidos
+          image: pfi-pedidos:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "pedidos" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pedidos, namespace: pfi }
+spec:
+  selector: { app: pedidos }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pagos, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pagos } }
+  template:
+    metadata: { labels: { app: pagos } }
+    spec:
+      containers:
+        - name: pagos
+          image: pfi-pagos:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "96Mi" }
+            limits: { cpu: "300m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pagos, namespace: pfi }
+spec:
+  selector: { app: pagos }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: auth, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: auth } }
+  template:
+    metadata: { labels: { app: auth } }
+    spec:
+      containers:
+        - name: auth
+          image: pfi-auth:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: auth, namespace: pfi }
+spec:
+  selector: { app: auth }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: usuarios, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: usuarios } }
+  template:
+    metadata: { labels: { app: usuarios } }
+    spec:
+      containers:
+        - name: usuarios
+          image: pfi-usuarios:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "usuarios" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: "96Mi" }
+            limits: { cpu: "250m", memory: "192Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: usuarios, namespace: pfi }
+spec:
+  selector: { app: usuarios }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: stock, namespace: pfi }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: stock } }
+  template:
+    metadata: { labels: { app: stock } }
+    spec:
+      containers:
+        - name: stock
+          image: pfi-stock:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: pfi-config }
+            - secretRef: { name: pfi-secrets }
+          env:
+            - { name: DB_SCHEMA, value: "stock" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "300m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: stock, namespace: pfi }
+spec:
+  selector: { app: stock }
+  ports: [{ port: 8000, targetPort: 8000 }]
